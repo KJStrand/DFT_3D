@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>DFT 3D • A-Frame</title>
+    <meta name="description" content="Hello, WebVR! • A-Frame">
+    <script src="https://aframe.io/releases/0.9.2/aframe.min.js"></script>
+    
+    <!-- Environment -->
+  <script src="https://rawgit.com/feiss/aframe-environment-component/master/dist/aframe-environment-component.min.js"></script>
+    
+    <!-- Orbit Controls -->
+	  <script src="https://unpkg.com/aframe-orbit-controls@1.0.0/dist/aframe-orbit-controls.min.js"></script>
+    
+    <!-- Camera resize -->    
+  <script src="https://rawgit.com/fernandojsg/aframe-camera-transform-controls-component/master/dist/aframe-camera-transform-controls-component.js"></script>
+    
+    <script>
+      var divScalar = 100;
+      
+      AFRAME.registerComponent('dftcircle', {
+        schema: {
+          radius: {type: 'float', default: 1},
+          showCirclesBool: {type: 'boolean', default: true},
+          isZ: {type: 'boolean', default: false}
+        },
+        
+        multiple: true,
+
+        init: function () {
+          
+          if(this.data.showCirclesBool){
+            
+            var curve = new THREE.EllipseCurve(
+              0,  0,            // ax, aY
+              this.data.radius, this.data.radius,           // xRadius, yRadius
+              0,  2 * Math.PI,  // aStartAngle, aEndAnglea
+              false,            // aClockwise
+              0                 // aRotation
+            );
+
+            var points = curve.getPoints( 50 );
+            var geometry = new THREE.BufferGeometry().setFromPoints( points );
+            var material = new THREE.LineBasicMaterial( { color : 0x002e78 } ); // 0x002e78 dark blue
+            var ellipse = new THREE.Line( geometry, material );
+            this.el.setObject3D('circ', ellipse);
+          }
+          
+          if (this.data.isZ){
+            this.el.setAttribute('line', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: 0, y: 0, z: this.data.radius},
+              color: 'white'
+            });
+          }
+          
+          else{
+              this.el.setAttribute('line', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'white'
+            });
+          }
+
+        }
+      }); 
+      
+      AFRAME.registerComponent('drawing', {
+            
+          schema: {
+            MAX_POINTS: {type: 'int', default: 5000},
+            skip: {type: 'int', default: 40},
+            numCircX: {type: 'int', default: 0},
+            numCircY: {type: 'int', default: 0},
+            numCircZ: {type: 'int', default: 0},
+            showCirclesNum: {type: 'int', default: 25}
+          },
+        
+        dft: function (x) {
+          const X = [];
+          const N = x.length;
+          for (let k = 0; k < N; k++) {
+            let re = 0;
+            let im = 0;
+            for (let n = 0; n < N; n++) {
+              const phi = (2*Math.PI * k * n) / N;
+              re += x[n] * Math.cos(phi);
+              im -= x[n] * Math.sin(phi);
+            }
+            re = re / N;
+            im = im / N;
+
+            let freq = k;
+            let amp = Math.sqrt(re * re + im * im);
+            let phase = Math.atan2(im, re);
+            X[k] = { re, im, freq, amp, phase };
+          }
+          return X;
+        },
+        
+        init: function () {
+            // var filepath = "./codingtrain3D.json"
+            var filepath = "./webready.json"
+            var request = new XMLHttpRequest();
+            request.open("GET", filepath, false);
+            request.send(null)
+            this.curveDat = JSON.parse(request.responseText);
+
+            this.count = 0;
+            this.x = [];    // let x = [];
+            this.y = [];    // let y = [];
+            this.z = [];    // let z = [];
+            this.fourierX;    // let fourierX;
+            this.fourierY;    // let fourierY;
+            this.fourierZ;    // let fourierZ;
+            this.time = 0;    // let time = 0;
+            this.path = [];    // let path = [];
+
+            for (let i = 0; i < this.curveDat.drawing.length; i += this.data.skip) {
+              this.x.push(this.curveDat.drawing[i].x * 10);
+              this.y.push(-1*this.curveDat.drawing[i].y * 10);
+              this.z.push(this.curveDat.drawing[i].z * 10);
+              // this.z.push(-0.1*i);
+              console.log("length: " + this.curveDat.drawing.length);
+            }
+            // console.log(this.z);
+            this.fourierX = this.dft(this.x);
+            this.fourierY = this.dft(this.y);
+            this.fourierZ = this.dft(this.z);
+
+            this.fourierX.sort((a, b) => b.amp - a.amp);
+            this.fourierY.sort((a, b) => b.amp - a.amp);
+            this.fourierZ.sort((a, b) => b.amp - a.amp);
+          
+            this.numCircles_X = this.fourierX.length;
+            this.numCircles_Y = this.fourierY.length;
+            this.numCircles_Z = this.fourierZ.length;
+            if (this.data.numCircX > 0){
+              this.numCircles_X = this.data.numCircX;
+            }
+            if (this.data.numCircY > 0){
+              this.numCircles_Y = this.data.numCircY;
+            }
+            if (this.data.numCircZ > 0){
+              this.numCircles_Z = this.data.numCircZ;
+            }
+          
+            console.log("Circles X: " + this.numCircles_X);
+            console.log("Circles Y: " + this.numCircles_Y);
+            console.log("Circles Z: " + this.numCircles_Z);
+          
+            this.circlesArray_X = new Array(this.numCircles_X);
+            this.circlesArray_Y = new Array(this.numCircles_Y);
+            this.circlesArray_Z = new Array(this.numCircles_Z);
+          
+            console.log("Fourier radius: " + this.fourierX[0].amp);
+          
+
+
+          // INITIALIZE X CIRCLES
+          {
+            var maxCheckCircles = true;
+            var freqTapor = 1;
+            var totalCount = 0;
+              for (let i = 0; i < this.numCircles_X; i+=freqTapor) {
+                totalCount++;
+                // if (i > 0 && i%100==0){
+                //     // freqTapor++;
+                // }
+              
+              if (i>=this.data.showCirclesNum && this.data.showCirclesNum != -1){
+                maxCheckCircles = false;
+              }
+
+              var entityEllipse_X = document.createElement('a-entity');
+              entityEllipse_X.setAttribute('dftcircle', {
+                radius: this.fourierX[i].amp / divScalar,
+                showCirclesBool: maxCheckCircles
+              });
+              entityEllipse_X.object3D.position.set(0,0,0);
+              this.circlesArray_X[i] = entityEllipse_X;
+              this.el.appendChild(entityEllipse_X);
+            }
+            console.log("totalCount " + totalCount);
+          
+          // Initialize Drawing Line X
+            this.el.setAttribute('line__X_1', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'red'
+            });
+            this.el.setAttribute('line__X_2', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'gray'
+            });
+            this.el.setAttribute('line__X_3', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'red'
+            });
+          }
+          
+
+          // INITIALIZE Y CIRCLES
+          {
+            var maxCheckCircles = true;
+            var freqTapor = 1;
+            for (let i = 0; i < this.numCircles_Y; i+=freqTapor) {
+              // if (i > 0 && i%100==0){
+              //     // freqTapor++;
+              // }
+              
+              if (i>=this.data.showCirclesNum && this.data.showCirclesNum != -1){
+                maxCheckCircles = false;
+              }
+              var entityEllipse_Y = document.createElement('a-entity');
+              entityEllipse_Y.setAttribute('dftcircle', {
+                radius: this.fourierY[i].amp / divScalar,
+                showCirclesBool: maxCheckCircles
+              });
+              entityEllipse_Y.object3D.position.set(0,0,0);
+              this.circlesArray_Y[i] = entityEllipse_Y;
+              this.el.appendChild(entityEllipse_Y);
+
+            }
+          
+            // Initialize Drawing Line Y
+            this.el.setAttribute('line__Y_1', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'green'
+            });
+            this.el.setAttribute('line__Y_2', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'gray'
+            });
+            this.el.setAttribute('line__Y_3', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'green'
+            });
+          }
+          
+          // INITIALIZE Z CIRCLES
+          {
+            var maxCheckCircles = true;
+            var freqTapor = 1;
+            for (let i = 0; i < this.numCircles_Y; i+=freqTapor) {
+              // if (i > 0 && i%100==0){
+              //     // freqTapor++;
+              // }
+              
+              if (i>=this.data.showCirclesNum && this.data.showCirclesNum != -1){
+                maxCheckCircles = false;
+              }
+              var entityEllipse_Z = document.createElement('a-entity');
+              entityEllipse_Z.setAttribute('dftcircle', {
+                radius: this.fourierZ[i].amp / divScalar,
+                showCirclesBool: maxCheckCircles,
+                isZ: true
+              });
+              entityEllipse_Z.object3D.position.set(0,0,0);
+              entityEllipse_Z.object3D.rotation.y = (Math.PI / 2);
+              entityEllipse_Z.object3D.rotation.x = (Math.PI / 2);
+              this.circlesArray_Z[i] = entityEllipse_Z;
+              this.el.appendChild(entityEllipse_Z);
+
+            }
+          
+            // Initialize Drawing Line Z
+            this.el.setAttribute('line__Z', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'blue'
+            });
+          }
+          
+          // INITIALIZE DRAW FOLLOW POINT
+          var entityDrawCurrentPosition = document.createElement('a-entity');
+          this.el.appendChild(entityDrawCurrentPosition);
+          this.drawcurrentposition = entityDrawCurrentPosition;
+          this.drawcurrentposition.object3D.position.set(6,7,8); 
+          
+          
+          this.setupLineHappened = false;
+            
+        },
+        
+        epiCycles: function (epi_x, epi_y, rotation, fourier, dim) {
+          
+          var freqTapor = 1;
+          for (let i = 0; i < this.numCircles_X; i+=freqTapor) {
+            // if (i > 0 && i%100==0){
+            //     // freqTapor++;
+            // }
+            let prevx = epi_x;
+            let prevy = epi_y;
+            let freq = fourier[i].freq;
+            let radius = fourier[i].amp;
+            let phase = fourier[i].phase;
+            epi_x += radius * Math.cos(freq * this.time + phase + rotation);
+            epi_y += radius * Math.sin(freq * this.time + phase + rotation);
+            
+            var circArray;
+            if (dim == 'x'){
+              circArray = this.circlesArray_X;
+              circArray[i].object3D.position.set(prevx / divScalar, prevy / divScalar, -2);
+              circArray[i].setAttribute('line', {
+                start: {x: 0, y: 0, z: 0.01},
+                end: {x: (epi_x - prevx) / divScalar, y: (epi_y - prevy) / divScalar, z: 0.01}
+              });
+            }
+            else if (dim == 'y'){
+              circArray = this.circlesArray_Y;
+              circArray[i].object3D.position.set(prevx / divScalar, prevy / divScalar, -2);
+              circArray[i].setAttribute('line', {
+                start: {x: 0, y: 0, z: 0.01},
+                end: {x: (epi_x - prevx) / divScalar, y: (epi_y - prevy) / divScalar, z: 0.01}
+              });
+            }
+            else if (dim == 'z'){
+              circArray = this.circlesArray_Z;
+              circArray[i].object3D.position.set(0, prevx / divScalar, prevy / divScalar);
+              circArray[i].setAttribute('line', {
+                start: {x: 0, y: 0, z: 0.01},
+                end: {x: (epi_x - prevx) / divScalar, y: (epi_y - prevy) / divScalar, z: 0.01}
+              });
+            }
+            
+            // circArray[i].object3D.position.set(prevx / divScalar, prevy / divScalar, -2);
+            
+            
+            
+            
+          }
+          return new THREE.Vector2(epi_x, epi_y);
+        },
+
+        draw: function () {
+          var width = 800;
+          var height = 600;
+          
+          let vx = this.epiCycles(width / 2, divScalar, 0, this.fourierX, 'x'); // Creates VectorX
+          let vy = this.epiCycles(divScalar, height / 2 + divScalar, Math.PI / 2, this.fourierY, 'y'); // Creates VectorY
+          let vz = this.epiCycles(divScalar, height / 2 + divScalar, Math.PI / 2, this.fourierZ, 'z'); // Creates VectorZ
+          
+          let v = new THREE.Vector3(vx.x, vy.y, vz.y);
+          // console.log(v);
+          
+          this.el.setAttribute('line__X_1', {
+            start: {x: vx.x / divScalar, y: vx.y / divScalar, z: -2},
+            end: {x: v.x / divScalar, y: 2, z: -2}
+          });
+          this.el.setAttribute('line__X_2', {
+            start: {x: v.x / divScalar, y: 2, z: -2},
+            end: {x: v.x / divScalar, y: 2, z: v.z / divScalar}
+          });
+          this.el.setAttribute('line__X_3', {
+            start: {x: v.x / divScalar, y: 2, z: v.z / divScalar},
+            end: {x: v.x / divScalar, y: v.y / divScalar, z: v.z / divScalar}
+          });
+          
+          // start: {x: vy.x / divScalar, y: vy.y / divScalar, z: -2},
+          //   end: {x: v.x / divScalar, y: v.y / divScalar, z: -2}
+          
+          this.el.setAttribute('line__Y_1', {
+            start: {x: vy.x / divScalar, y: vy.y / divScalar, z: -2},
+            end: {x: 2, y: v.y / divScalar, z: -2}
+          });
+          
+          this.el.setAttribute('line__Y_2', {
+            start: {x: 2, y: v.y / divScalar, z: -2},
+            end: {x: 2, y: v.y / divScalar, z: v.z / divScalar}
+          });
+          
+          this.el.setAttribute('line__Y_3', {
+            start: {x: 2, y: v.y / divScalar, z: v.z / divScalar},
+            end: {x: v.x / divScalar, y: v.y / divScalar, z: v.z / divScalar}
+          });
+          
+          this.el.setAttribute('line__Z', {
+            start: {x: vz.x/divScalar - 1, y: 1, z: vz.y / divScalar},
+            end: {x: v.x / divScalar, y: v.y / divScalar, z: v.z / divScalar}
+          });
+          
+          this.drawcurrentposition.object3D.position.set(v.x / divScalar, v.y / divScalar, v.z / divScalar); 
+
+          const dt = (2*Math.PI) / this.fourierY.length;
+          this.time += dt;
+
+          if (this.time > 2*Math.PI) {
+            this.time = 0;
+            this.path = [];
+          }
+
+        },
+        
+        setupLine: function (){
+            this.index = 0;
+            var worldPos = new THREE.Vector3();
+            console.log(this.drawcurrentposition);
+            console.log(this.drawcurrentposition.object3D.position);
+          
+            this.wp_x = this.drawcurrentposition.object3D.position.x;
+            this.wp_y = this.drawcurrentposition.object3D.position.y;
+            this.wp_z = this.drawcurrentposition.object3D.position.z;
+            
+            // console.log(worldPos);
+
+            // geometry
+            var geometry = new THREE.BufferGeometry();
+
+            // attributes
+            var positions = new Float32Array( this.data.MAX_POINTS * 3 ); // 3 vertices per point
+            // console.log(positions);
+            positions [ 0 ] = this.wp_x;
+            positions [ 1 ] = this.wp_y;
+            positions [ 2 ] = this.wp_z;
+            // console.log(positions);
+            geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+
+            // draw range
+            this.drawCount = 2; // draw the first 2 points, only
+            geometry.setDrawRange( 0, this.drawCount );
+
+            // material
+            var material = new THREE.LineBasicMaterial( { color: 0x34ebeb } );
+
+            // line
+            line = new THREE.Line( geometry,  material );
+            this.el.setObject3D('buff', line);
+          },
+        
+        drawCurve: function (time, timeDelta) {
+            
+            if (!this.setupLineHappened){
+              this.setupLine();
+              this.setupLineHappened = true;
+            }
+
+            this.drawCount = ( this.drawCount + 1 ) % this.data.MAX_POINTS;
+
+            line.geometry.setDrawRange( 0, this.drawCount );
+
+            var positions = this.el.getObject3D('buff').geometry.attributes.position.array;
+
+            positions[ this.index++ ] = this.drawcurrentposition.object3D.position.x;
+            positions[ this.index++ ] = this.drawcurrentposition.object3D.position.y;
+            positions[ this.index++ ] = this.drawcurrentposition.object3D.position.z;
+
+            this.el.getObject3D('buff').geometry.attributes.position.needsUpdate = true;
+
+        },
+
+        tick: function (time, timeDelta) {
+          if (this.count == 0){
+            this.draw();
+          }
+          this.count = 0; // (this.count + 1) % (2);
+          
+          this.drawCurve(time, timeDelta);
+          
+        },
+      });
+      
+
+    </script>
+    
+  </head>
+  <body>
+    <a-scene camera-transform-controls="">
+      <a-entity environment="preset: contact"></a-entity>
+      
+      <a-entity id="cameraRig">
+		    <a-camera position="5 1.4 10"></a-camera>
+<!--         <a-camera position="-5 4 -10" orbit-controls="target: 0 4 0; minDistance: 0.0; maxDistance: 180; enableKeys: false; rotateSpeed: 0.2; panSpeed: 1; zoomSpeed: 1;"></a-camera> -->
+<!--         <a-camera position="6 4 6" orbit-controls="target: 2 4 0"></a-camera> -->
+        <a-entity id="lefthand" camera-transform-controls-hand="hand:left" vive-controls="hand: left" oculus-touch-controls="hand: left" windows-motion-controls="hand: left"></a-entity>
+        <a-entity id="righthand" camera-transform-controls-hand="hand:right" vive-controls="hand: right" oculus-touch-controls="hand: right" windows-motion-controls="hand: right"></a-entity>
+      </a-entity>
+      
+      <a-entity drawing="MAX_POINTS: 1934; skip: 16; numCircX: 2; numCircY: 2; numCircZ: 2; showCirclesNum: 2"></a-entity>
+      
+    </a-scene>
+  </body>x
+</html>

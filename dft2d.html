@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>DFT 2D • A-Frame</title>
+    <meta name="description" content="Hello, WebVR! • A-Frame">
+    <script src="https://aframe.io/releases/0.9.2/aframe.min.js"></script>
+<!--     <script src="https://aframe.io/releases/0.8.0/aframe.min.js"></script> -->
+    
+    <!-- Environment -->
+  <script src="https://rawgit.com/feiss/aframe-environment-component/master/dist/aframe-environment-component.min.js"></script>
+    
+    <!-- Orbit Controls -->
+	  <script src="https://unpkg.com/aframe-orbit-controls@1.0.0/dist/aframe-orbit-controls.min.js"></script>
+    
+    <!-- Camera resize -->    
+  <script src="https://rawgit.com/fernandojsg/aframe-camera-transform-controls-component/master/dist/aframe-camera-transform-controls-component.js"></script>
+    
+<!--     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/p5.min.js"></script> -->
+<!--     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/addons/p5.dom.min.js"></script> -->
+
+  
+    
+    
+    <script>
+      AFRAME.registerComponent('dftcircle', {
+        schema: {
+          radius: {type: 'float', default: 1},
+          showCircles: {type: 'boolean', default: true}
+        },
+        
+        multiple: true,
+
+        init: function () {
+          
+          if(this.data.showCircles){
+            
+            var curve = new THREE.EllipseCurve(
+              0,  0,            // ax, aY
+              this.data.radius, this.data.radius,           // xRadius, yRadius
+              0,  2 * Math.PI,  // aStartAngle, aEndAngle
+              false,            // aClockwise
+              0                 // aRotation
+            );
+
+            var points = curve.getPoints( 25 );
+            var geometry = new THREE.BufferGeometry().setFromPoints( points );
+            var material = new THREE.LineBasicMaterial( { color : 0x002e78 } ); // 0x002e78 dark blue
+            var ellipse = new THREE.Line( geometry, material );
+            this.el.setObject3D('circ', ellipse);
+            
+          }
+
+          
+          
+          this.el.setAttribute('line', {
+            start: {x: 0, y: 0, z: 0},
+            end: {x: this.data.radius, y: 0, z: 0},
+            color: 'white'
+          });
+          
+
+        }
+      });
+      
+      AFRAME.registerComponent('drawTip', {
+        schema: {
+          // position: {type: 'vec3', default: {x: 2, y: 2, z: 2}},
+        },
+
+      });
+      
+      
+      
+      AFRAME.registerComponent('drawing_p', {
+            
+          schema: {
+            MAX_POINTS: {type: 'int', default: 5000},
+            skip: {type: 'int', default: 40},
+            numCircX: {type: 'int', default: 0},
+            numCircY: {type: 'int', default: 0},
+            showCircles: {type: 'int', default: 25}
+          },
+        
+        dft: function (x) {
+          const X = [];
+          const N = x.length;
+          for (let k = 0; k < N; k++) {
+            let re = 0;
+            let im = 0;
+            for (let n = 0; n < N; n++) {
+              const phi = (2*Math.PI * k * n) / N;
+              re += x[n] * Math.cos(phi);
+              im -= x[n] * Math.sin(phi);
+            }
+            re = re / N;
+            im = im / N;
+
+            let freq = k;
+            let amp = Math.sqrt(re * re + im * im);
+            let phase = Math.atan2(im, re);
+            X[k] = { re, im, freq, amp, phase };
+          }
+          return X;
+        },
+        
+        init: function () {
+  
+            var request = new XMLHttpRequest();
+            request.open("GET", "./codingtrain.json", false);
+            request.send(null)
+            this.curveDat = JSON.parse(request.responseText);
+
+            this.count = 0;
+            this.x = [];    // let x = [];
+            this.y = [];    // let y = [];
+            this.fourierX;    // let fourierX;
+            this.fourierY;    // let fourierY;
+            this.time = 0;    // let time = 0;
+            this.path = [];    // let path = [];
+
+            for (let i = 0; i < this.curveDat.drawing.length; i += this.data.skip) {
+              this.x.push(this.curveDat.drawing[i].x);
+              this.y.push(-1*this.curveDat.drawing[i].y);
+            }
+            this.fourierX = this.dft(this.x);
+            this.fourierY = this.dft(this.y);
+
+            this.fourierX.sort((a, b) => b.amp - a.amp);
+            this.fourierY.sort((a, b) => b.amp - a.amp);
+          
+            this.numCircles_X = this.fourierX.length;
+            this.numCircles_Y = this.fourierY.length;
+            if (this.data.numCircX > 0){
+              this.numCircles_X = this.data.numCircX;
+            }
+            if (this.data.numCircY > 0){
+              this.numCircles_Y = this.data.numCircY;
+            }
+          
+            console.log("Circles X: " + this.numCircles_X);
+            console.log("Circles Y: " + this.numCircles_Y);
+          
+            this.circlesArray_X = new Array(this.numCircles);
+            this.circlesArray_Y = new Array(this.numCircles_Y);
+          
+            console.log("Fourier radius: " + this.fourierX[0].amp);
+          
+            var maxCheckCircles = true;
+
+            // INIT X CIRCLES
+            var gaussCount = 1;
+            var totalCount = 0;
+              for (let i = 0; i < this.numCircles_X; i+=gaussCount) {
+                totalCount++;
+                if (i > 0 && i%100==0){
+                    // gaussCount++;
+                }
+              
+              if (i>this.data.showCircles){
+                maxCheckCircles = false;
+              }
+
+              var entityEllipse_X = document.createElement('a-entity');
+              entityEllipse_X.setAttribute('dftcircle', {
+                radius: this.fourierX[i].amp / 100,
+                showCircles: maxCheckCircles
+              });
+              entityEllipse_X.object3D.position.set(0,0,0);
+              this.circlesArray_X[i] = entityEllipse_X;
+              this.el.appendChild(entityEllipse_X);
+            }
+            console.log("totalCount " + totalCount);
+          
+            var maxCheckCircles = this.data.showCircles;
+          
+            // INIT Y CIRCLES
+            var gaussCount = 1;
+            for (let i = 0; i < this.numCircles_Y; i+=gaussCount) {
+              if (i > 0 && i%100==0){
+                  // gaussCount++;
+              }
+              
+              if (i>this.data.showCircles){
+                maxCheckCircles = false;
+              }
+              var entityEllipse_Y = document.createElement('a-entity');
+              entityEllipse_Y.setAttribute('dftcircle', {
+                radius: this.fourierY[i].amp / 100,
+                showCircles: maxCheckCircles
+              });
+              entityEllipse_Y.object3D.position.set(0,0,0);
+              this.circlesArray_Y[i] = entityEllipse_Y;
+              this.el.appendChild(entityEllipse_Y);
+
+            }
+          
+            // Initialize Drawing Line X
+            this.el.setAttribute('line__X', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'red'
+            });
+          
+            // Initialize Drawing Line Y
+            this.el.setAttribute('line__Y', {
+              start: {x: 0, y: 0, z: 0},
+              end: {x: this.data.radius, y: 0, z: 0},
+              color: 'green'
+            });
+          
+          
+          
+          this.el.setAttribute('drawTip', {
+            // position: {x: 1, y: 2, z: 1}
+          });
+          
+          var entityDrawCurrentPosition = document.createElement('a-entity');
+          this.el.appendChild(entityDrawCurrentPosition);
+          this.drawcurrentposition = entityDrawCurrentPosition;
+          this.drawcurrentposition.object3D.position.set(6,7,8); 
+          
+          
+          this.setupLineHappened = false;
+            
+        },
+        
+        epiCycles: function (epi_x, epi_y, rotation, fourier, dim) {
+          
+          var gaussCount = 1;
+          for (let i = 0; i < this.numCircles_X; i+=gaussCount) {
+            if (i > 0 && i%100==0){
+                // gaussCount++;
+            }
+            let prevx = epi_x;
+            let prevy = epi_y;
+            let freq = fourier[i].freq;
+            let radius = fourier[i].amp;
+            let phase = fourier[i].phase;
+            epi_x += radius * Math.cos(freq * this.time + phase + rotation);
+            epi_y += radius * Math.sin(freq * this.time + phase + rotation);
+
+            // stroke(255, 100);
+            // noFill();
+            //ellipse(prevx, prevy, radius * 2);
+            
+            var circArray;
+            if (dim == 'x'){
+              circArray = this.circlesArray_X;
+            }
+            else if (dim == 'y'){
+              circArray = this.circlesArray_Y;
+            }
+            
+            circArray[i].object3D.position.set(prevx / 100, prevy / 100, -2);
+            circArray[i].setAttribute('line', {
+                // start: {x: prevx / 100, y: prevy / 100, z: 0},
+                // end: {x: epi_x / 100, y: epi_y / 100, z: 0}
+              
+                start: {x: 0, y: 0, z: 0.01},
+                end: {x: (epi_x - prevx) / 100, y: (epi_y - prevy) / 100, z: 0.01}
+              });
+            
+            
+            // stroke(255);
+            // line(prevx, prevy, this.x, this.y);
+            // circArray[i].object3D
+            
+          }
+          //return createVector(this.x, this.y);
+          return new THREE.Vector2(epi_x, epi_y);
+        },
+
+        draw: function () {
+          // console.log("draw called...");
+          // background(0);
+
+          // let vx = epiCycles(width / 2 + 100, 100, 0, fourierX); // Creates VectorX
+          // let vy = epiCycles(100, height / 2 + 100, HALF_PI, fourierY); // Creates VectorY
+          
+          var width = 800;
+          var height = 600;
+          
+          // let vx = this.epiCycles(width / 2 + 100, 100, 0, this.fourierX, 'x'); // Creates VectorX
+          // let vy = this.epiCycles(100, height / 2 + 100, Math.PI, this.fourierY, 'y'); // Creates VectorY
+          
+          let vx = this.epiCycles(width / 2, 100, 0, this.fourierX, 'x'); // Creates VectorX
+          let vy = this.epiCycles(100, height / 2 + 100, Math.PI / 2, this.fourierY, 'y'); // Creates VectorY
+          
+          let v = new THREE.Vector2(vx.x, vy.y);
+          // console.log(v);
+          
+          this.el.setAttribute('line__X', {
+            start: {x: vx.x / 100, y: vx.y / 100, z: -2},
+            end: {x: v.x / 100, y: v.y / 100, z: -2}
+          });
+          
+          this.el.setAttribute('line__Y', {
+            start: {x: vy.x / 100, y: vy.y / 100, z: -2},
+            end: {x: v.x / 100, y: v.y / 100, z: -2}
+          });
+          
+          this.drawcurrentposition.object3D.position.set(v.x / 100, v.y / 100, -2); 
+          
+          
+          
+//           let v = createVector(vx.x, vy.y);
+//           path.unshift(v); // add items to beginning of an array
+//           line(vx.x, vx.y, v.x, v.y);
+//           line(vy.x, vy.y, v.x, v.y);
+
+//           beginShape();
+//           noFill();
+//           for (let i = 0; i < path.length; i++) {
+//             vertex(path[i].x, path[i].y);
+//           }
+//           endShape();
+
+          const dt = (2*Math.PI) / this.fourierY.length;
+          this.time += dt;
+
+          if (this.time > 2*Math.PI) {
+            this.time = 0;
+            this.path = [];
+          }
+
+        },
+        
+        setupLine: function (){
+            // var sceneEl = document.querySelector('a-scene');
+            // this.drawcurrentposition = document.getElementById('drawcurrentposition');
+            // this.drawcurrentposition_z = document.getElementById('drawcurrentposition_z');
+            // this.drawcurrentposition_x = document.getElementById('drawcurrentposition_x');
+            
+            this.index = 0;
+            var worldPos = new THREE.Vector3();
+            console.log(this.drawcurrentposition);
+            console.log(this.drawcurrentposition.object3D.position);
+            // worldPos.setFromMatrixPosition(this.drawcurrentposition.object3D.matrixWorld);
+            // this.wp_x = worldPos.x;
+            // this.wp_y = worldPos.y;
+            // this.wp_z = worldPos.z;
+          
+            this.wp_x = this.drawcurrentposition.object3D.position.x;
+            this.wp_y = this.drawcurrentposition.object3D.position.y;
+            this.wp_z = this.drawcurrentposition.object3D.position.z;
+            
+            // console.log(worldPos);
+
+            // geometry
+            var geometry = new THREE.BufferGeometry();
+
+            // attributes
+            var positions = new Float32Array( this.data.MAX_POINTS * 3 ); // 3 vertices per point
+            // console.log(positions);
+            positions [ 0 ] = this.wp_x;
+            positions [ 1 ] = this.wp_y;
+            positions [ 2 ] = this.wp_z;
+            // console.log(positions);
+            geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+
+            // draw range
+            this.drawCount = 2; // draw the first 2 points, only
+            geometry.setDrawRange( 0, this.drawCount );
+
+            // material
+            var material = new THREE.LineBasicMaterial( { color: 0x34ebeb } );
+
+            // line
+            line = new THREE.Line( geometry,  material );
+            this.el.setObject3D('buff', line);
+          },
+        
+        drawCurve: function (time, timeDelta) {
+            
+            if (!this.setupLineHappened){
+              this.setupLine();
+              this.setupLineHappened = true;
+            }
+
+            this.drawCount = ( this.drawCount + 1 ) % this.data.MAX_POINTS;
+
+            line.geometry.setDrawRange( 0, this.drawCount );
+
+            var positions = this.el.getObject3D('buff').geometry.attributes.position.array;
+
+            positions[ this.index++ ] = this.drawcurrentposition.object3D.position.x;
+            positions[ this.index++ ] = this.drawcurrentposition.object3D.position.y;
+            positions[ this.index++ ] = this.drawcurrentposition.object3D.position.z;
+
+
+            this.el.getObject3D('buff').geometry.attributes.position.needsUpdate = true;
+
+        },
+
+        tick: function (time, timeDelta) {
+          if (this.count == 0){
+            this.draw();
+          }
+          this.count = 0; // (this.count + 1) % (2);
+          
+          this.drawCurve(time, timeDelta);
+          
+        },
+      });
+      
+
+    </script>
+    
+  </head>
+  <body>
+    <a-scene camera-transform-controls="">
+      <a-entity environment="preset: contact"></a-entity>
+      
+      <a-entity id="cameraRig">
+<!-- 		    <a-camera position="0 1.4 0"></a-camera> -->
+        <a-camera position="5 4 1" orbit-controls="target: 3 3 -3; minDistance: 0.0; maxDistance: 180; enableKeys: false; rotateSpeed: 0.2; panSpeed: 1; zoomSpeed: 1;"></a-camera>
+        <a-entity id="lefthand" camera-transform-controls-hand="hand:left" vive-controls="hand: left" oculus-touch-controls="hand: left" windows-motion-controls="hand: left"></a-entity>
+        <a-entity id="righthand" camera-transform-controls-hand="hand:right" vive-controls="hand: right" oculus-touch-controls="hand: right" windows-motion-controls="hand: right"></a-entity>
+      </a-entity>
+      
+      <a-entity drawing_p="MAX_POINTS: 2000; skip: 8; numCircX: 200; numCircY: 200; showCircles: 0"></a-entity>
+      
+    </a-scene>
+  </body>
+</html>
